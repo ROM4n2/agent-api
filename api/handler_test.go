@@ -112,7 +112,11 @@ func TestHandleGet_Found(t *testing.T) {
 	var body struct {
 		Status string
 	}
-	json.NewDecoder(getRec.Body).Decode(&body)
+
+	err = json.NewDecoder(getRec.Body).Decode(&body)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if body.Status == "" {
 		t.Errorf("status 为空")
