@@ -19,6 +19,7 @@ func NewHandler(s *store.Store, p *worker.Pool) *Handler {
 func (h *Handler) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /run", h.HandleRun)
+	// 注意: 注册的是 tasks
 	mux.HandleFunc("GET /tasks/{id}", h.HandleGet)
 	return mux
 }
