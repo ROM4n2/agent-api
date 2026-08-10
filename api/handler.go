@@ -4,6 +4,8 @@ import (
 	"agent-api/store"
 	"agent-api/worker"
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
 )
 
@@ -43,7 +45,11 @@ func (h *Handler) HandleRun(w http.ResponseWriter, r *http.Request) {
 	h.pool.Enqueue(id)
 
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{"task_id": id})
+	err = json.NewEncoder(w).Encode(map[string]string{"task_id": id})
+
+	if err != nil {
+		log.Printf("encode response: %v", err)
+	}
 
 }
 
@@ -51,11 +57,14 @@ func (h *Handler) HandleGet(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	task, err := h.store.Get(id)
-	if err == store.ErrNotFound {
+	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(task)
+	err = json.NewEncoder(w).Encode(task)
+	if err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
