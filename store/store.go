@@ -22,6 +22,12 @@ type Task struct {
 	Result json.RawMessage
 }
 
+func NewStore() *Store {
+	var store Store
+	store.tasks = make(map[string]Task)
+	return &store
+}
+
 func (s *Store) Create(prompt string) (id string) {
 	s.Lock()
 	defer s.Unlock()
