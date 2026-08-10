@@ -94,10 +94,16 @@ func TestPool_LimitsConcurrency(t *testing.T) {
 	deadline = time.Now().Add(5 * time.Second)
 	for {
 		done := 0
-		// 数 done 的
+		for _, id := range ids {
+			task, _ := s.Get(id)
+			if task.Status == "done" {
+				done++
+			}
+		}
 		if done == 6 {
 			break
 		}
+
 		if time.Now().After(deadline) {
 			t.Fatal("5s 内没全 done")
 		}
