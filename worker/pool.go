@@ -8,6 +8,7 @@ import (
 )
 
 type Pool struct {
+	// queue 小写为私有 需要公开方法提交
 	queue  chan string
 	store  *store.Store
 	size   int
@@ -57,4 +58,8 @@ func (p *Pool) worker() {
 		}
 	}
 
+}
+
+func (p *Pool) Enqueue(id string) {
+	p.queue <- id
 }
