@@ -16,6 +16,13 @@ func NewHandler(s *store.Store, p *worker.Pool) *Handler {
 	return &Handler{store: s, pool: p}
 }
 
+func (h *Handler) Routes() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /run", h.HandleRun)
+	mux.HandleFunc("GET /tasks/{id}", h.HandleGet)
+	return mux
+}
+
 func (h *Handler) HandleRun(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Prompt string
