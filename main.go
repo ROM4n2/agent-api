@@ -24,7 +24,7 @@ func main() {
 
 	s := store.NewStore()
 	p := worker.NewPool(3, s, llm.NewClient(cfg))
-	
+
 	p.Start()
 	defer p.Stop()
 

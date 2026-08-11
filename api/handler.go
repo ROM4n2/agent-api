@@ -61,6 +61,7 @@ func (h *Handler) HandleRun(w http.ResponseWriter, r *http.Request) {
 	id := h.store.Create(req.Prompt)
 	h.pool.Enqueue(id)
 
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusAccepted)
 	err = json.NewEncoder(w).Encode(map[string]string{"task_id": id})
 
@@ -83,7 +84,7 @@ func (h *Handler) HandleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	err = json.NewEncoder(w).Encode(task)
 	if err != nil {
 		log.Printf("encode response: %v", err)
