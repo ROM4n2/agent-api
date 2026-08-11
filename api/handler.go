@@ -43,6 +43,8 @@ func (h *Handler) HandleRun(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Prompt string
 	}
+	// 限制请求体大小，避免客户端发大文件导致内存耗尽。
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)

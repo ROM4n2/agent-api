@@ -51,7 +51,7 @@ func TestHandleRun_CreatesTask(t *testing.T) {
 	if task.Prompt != "hi" {
 		t.Errorf("prompt = %q, want hi", task.Prompt)
 	}
-	if task.Status != "pending" {
+	if task.Status != store.StatusPending {
 		t.Errorf("status = %q, want pending", task.Status)
 	}
 }

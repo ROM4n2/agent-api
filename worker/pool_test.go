@@ -19,7 +19,7 @@ func TestWorker_ProcessesTask(t *testing.T) {
 	deadline := time.Now().Add(time.Second) // 最多等 1s
 	for {
 		task, _ := s.Get(id)
-		if task.Status == "running" {
+		if task.Status == store.StatusRunning {
 			break // 等到 running，出循环
 		}
 		if time.Now().After(deadline) {
@@ -31,7 +31,7 @@ func TestWorker_ProcessesTask(t *testing.T) {
 	deadline = time.Now().Add(4 * time.Second) // 最多等 4s
 	for {
 		task, _ := s.Get(id)
-		if task.Status == "done" {
+		if task.Status == store.StatusDone {
 			break // 等到 done
 		}
 		if time.Now().After(deadline) {
@@ -59,13 +59,13 @@ func TestPool_LimitsConcurrency(t *testing.T) {
 	}
 
 	// 轮询（1s deadline）：等到 running 数量 == 3
-	//   统计 running 数：for 循环遍历 ids，s.Get(id) 数 status == "running" 的
+	//   统计 running 数：for 循环遍历 ids，s.Get(id) 数 status == StatusRunning 的
 	deadline := time.Now().Add(time.Second)
 	for {
 		running := 0
 		for _, id := range ids { // 遍历所有任务数一下
 			task, _ := s.Get(id)
-			if task.Status == "running" {
+			if task.Status == store.StatusRunning {
 				running++
 			}
 		}
@@ -78,11 +78,11 @@ func TestPool_LimitsConcurrency(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// 断言：此时 pending 数量 == 3（遍历数 status == "pending"）
+	// 断言：此时 pending 数量 == 3（遍历数 status == StatusPending）
 	pending := 0
 	for _, id := range ids {
 		task, _ := s.Get(id)
-		if task.Status == "pending" {
+		if task.Status == store.StatusPending {
 			pending++
 		}
 	}
@@ -96,7 +96,7 @@ func TestPool_LimitsConcurrency(t *testing.T) {
 		done := 0
 		for _, id := range ids {
 			task, _ := s.Get(id)
-			if task.Status == "done" {
+			if task.Status == store.StatusDone {
 				done++
 			}
 		}

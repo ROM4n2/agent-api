@@ -10,6 +10,13 @@ import (
 	"sync"
 )
 
+const (
+	StatusPending = "pending"
+	StatusRunning = "running"
+	StatusDone    = "done"
+	StatusFailed  = "failed"
+)
+
 // ErrNotFound 表示指定 ID 的任务不存在。
 // 调用方应当用 errors.Is 判断，而不是比较字符串。
 var ErrNotFound = errors.New("task not found")
@@ -19,8 +26,8 @@ var ErrNotFound = errors.New("task not found")
 // map 本身不支持并发写（会直接 panic），且 Update/Complete 都是
 // 读-改-写的复合操作，必须整段加锁才不会丢更新。
 type Store struct {
-	tasks map[string]Task
-	sync.Mutex
+	tasks  map[string]Task
+	mu     sync.Mutex
 	nextID int
 }
 
@@ -46,8 +53,8 @@ func NewStore() *Store {
 
 // Create 登记一个新任务并返回其 ID，初始状态为 pending。
 func (s *Store) Create(prompt string) (id string) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// 自增计数器保证 ID 唯一；用 prompt 作键会让重复提交互相覆盖
 	s.nextID++
@@ -56,7 +63,7 @@ func (s *Store) Create(prompt string) (id string) {
 	s.tasks[id] = Task{
 		ID:     id,
 		Prompt: prompt,
-		Status: "pending",
+		Status: StatusPending,
 	}
 
 	return id
@@ -64,17 +71,17 @@ func (s *Store) Create(prompt string) (id string) {
 
 // Update 只迁移状态，不触碰 Result 和 Error。
 // 任务不存在时返回 ErrNotFound——不存在的 ID 不能被静默创建出来。
-func (s *Store) Update(ID string, status string) error {
-	s.Lock()
-	defer s.Unlock()
+func (s *Store) Update(id string, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	task, ok := s.tasks[ID]
+	task, ok := s.tasks[id]
 	if !ok {
 		return ErrNotFound
 	}
 	// 读-改-写：map 里存的是值，必须整个写回才生效
 	task.Status = status
-	s.tasks[ID] = task
+	s.tasks[id] = task
 
 	return nil
 }
@@ -87,22 +94,22 @@ func (s *Store) Update(ID string, status string) error {
 // 返回的 error 描述的是存储操作本身是否成功，与 err 参数无关：
 // 任务失败但成功记录下来，返回的仍是 nil。
 func (s *Store) Complete(ID string, result string, err error) error {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	task, ok := s.tasks[ID]
 	if !ok {
 		return ErrNotFound
 	}
 
 	if err != nil {
-		task.Status = "failed"
+		task.Status = StatusFailed
 		task.Error = err.Error()
 		s.tasks[ID] = task
 
 		return nil
 	}
 
-	task.Status = "done"
+	task.Status = StatusDone
 	task.Result = result
 
 	s.tasks[ID] = task
@@ -114,8 +121,8 @@ func (s *Store) Complete(ID string, result string, err error) error {
 // 返回副本而非指针，调用方改动不会污染内部状态，
 // 从设计上消除了一整类数据竞争。
 func (s *Store) Get(ID string) (Task, error) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	v, ok := s.tasks[ID]
 	if !ok {

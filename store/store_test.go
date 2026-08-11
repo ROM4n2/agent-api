@@ -24,8 +24,8 @@ func TestStore_Create(t *testing.T) {
 		t.Errorf("Get 返回的 Prompt 不是 hello")
 	}
 
-	// 断言 3：取回来的 Status == "pending"
-	if task.Status != "pending" {
+	// 断言 3：取回来的 Status == StatusPending
+	if task.Status != StatusPending {
 		t.Errorf("Get 返回的 Status 不是 pending")
 	}
 }
@@ -45,7 +45,7 @@ func TestStore_UpdateStatus(t *testing.T) {
 	s := &Store{tasks: make(map[string]Task)}
 
 	id := s.Create("hello")
-	s.Update(id, "running")
+	s.Update(id, StatusRunning)
 
 	task, err := s.Get(id)
 
@@ -53,8 +53,8 @@ func TestStore_UpdateStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get 返回的 %v", err)
 	}
-	// 断言：task.Status == "running"
-	if task.Status != "running" {
+	// 断言：task.Status == StatusRunning
+	if task.Status != StatusRunning {
 		t.Errorf("Get 返回的 Status 不为 running")
 	}
 }

@@ -16,7 +16,7 @@ type Pool struct {
 	// 缓冲区大小等于 worker 数：满了 Enqueue 会阻塞调用方（HTTP handler），
 	// 使异步退化为同步。生产上应改为 select+default 快速失败或换持久化队列。
 	queue chan string
-	store *store.Store
+	tasks *store.Store
 	size  int
 	// ctx/cancel 是关闭信号的广播机制：Stop 一次 cancel，
 	// 所有 worker 与派生出去的请求 ctx 同时收到通知。
@@ -32,7 +32,7 @@ func NewPool(size int, s *store.Store, client *llm.Client) *Pool {
 
 	p := Pool{
 		size:   size,
-		store:  s,
+		tasks:  s,
 		queue:  make(chan string, size),
 		ctx:    ctx,
 		cancel: cancel,
@@ -72,13 +72,13 @@ func (p *Pool) worker() {
 // 任何错误都在这里终结——worker 是 goroutine，没有调用方可以把 error 返回给谁。
 func (p *Pool) process(id string) {
 	// 先置 running，让轮询方立刻看到状态推进
-	if err := p.store.Update(id, "running"); err != nil {
+	if err := p.tasks.Update(id, store.StatusRunning); err != nil {
 		log.Printf("worker: update task %s to running: %v", id, err)
 		return
 	}
 
 	// 队列里只传了 ID，prompt 的权威副本在 store 中
-	task, err := p.store.Get(id)
+	task, err := p.tasks.Get(id)
 	if err != nil {
 		log.Printf("worker: get task %s: %v", id, err)
 		return
@@ -95,13 +95,13 @@ func (p *Pool) process(id string) {
 		// task.Error 会经 GET /tasks/{id} 原样返回给调用方，因此只存粗粒度分类。
 		log.Printf("worker: task %s failed: %v", id, err)
 
-		if err := p.store.Complete(id, "", errors.New("upstream error")); err != nil {
+		if err := p.tasks.Complete(id, "", errors.New("upstream error")); err != nil {
 			log.Printf("worker: task %s complete failed: %v", id, err)
 		}
 		return
 	}
 
-	if err := p.store.Complete(id, res, nil); err != nil {
+	if err := p.tasks.Complete(id, res, nil); err != nil {
 		log.Printf("worker: task %s complete failed: %v", id, err)
 	}
 }
