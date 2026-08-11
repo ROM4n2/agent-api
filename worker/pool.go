@@ -48,6 +48,7 @@ func (p *Pool) worker() {
 		case id := <-p.queue: // 有活
 			p.store.Update(id, "running")
 
+			// Todo
 			time.Sleep(2 * time.Second)
 
 			p.store.Update(id, "done")
