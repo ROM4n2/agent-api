@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"agent-api/llm"
 	"agent-api/store"
 	"context"
 	"errors"
@@ -9,6 +8,12 @@ import (
 	"sync"
 	"time"
 )
+
+// chatter 抽象 process 所需的 LLM 能力，
+// 使测试可以注入不发真实请求的实现。
+type chatter interface {
+	Chat(ctx context.Context, prompt string) (string, error)
+}
 
 // Pool 用固定数量的 worker goroutine 消费任务队列，
 // 以此限制同时在飞的 LLM 请求数——上游的限流和计费按并发量算。
@@ -24,10 +29,10 @@ type Pool struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-	llm    *llm.Client
+	llm    chatter
 }
 
-func NewPool(size int, s *store.Store, client *llm.Client) *Pool {
+func NewPool(size int, s *store.Store, client chatter) *Pool {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	p := Pool{

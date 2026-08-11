@@ -3,6 +3,7 @@ package api
 import (
 	"agent-api/store"
 	"agent-api/worker"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,9 +11,15 @@ import (
 	"testing"
 )
 
+type fakeLLM struct{}
+
+func (fakeLLM) Chat(ctx context.Context, prompt string) (string, error) {
+	return "fake response", nil
+}
+
 func newTestMux() (*http.ServeMux, *store.Store) {
 	s := store.NewStore()
-	p := worker.NewPool(3, s)
+	p := worker.NewPool(3, s, fakeLLM{})
 	h := NewHandler(s, p)
 	return h.Routes(), s
 }

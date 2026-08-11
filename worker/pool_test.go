@@ -2,14 +2,26 @@ package worker
 
 import (
 	"agent-api/store"
+	"context"
 	"strconv"
 	"testing"
 	"time"
 )
 
+type fakeChatter struct {
+	delay time.Duration
+}
+
+func (f fakeChatter) Chat(ctx context.Context, prompt string) (string, error) {
+	// 睡一下模拟耗时，让并发测试能观察到状态
+	// 返回固定字符串，断言才写得出来
+	time.Sleep(f.delay)
+	return "fake response", nil
+}
+
 func TestWorker_ProcessesTask(t *testing.T) {
 	s := store.NewStore()
-	p := NewPool(3, s)
+	p := NewPool(3, s, fakeChatter{100 * time.Millisecond})
 	p.Start()
 	defer p.Stop()
 
@@ -44,7 +56,7 @@ func TestWorker_ProcessesTask(t *testing.T) {
 
 func TestPool_LimitsConcurrency(t *testing.T) {
 	s := store.NewStore()
-	p := NewPool(3, s)
+	p := NewPool(3, s, fakeChatter{100 * time.Millisecond}) // 3 个 worker
 	p.Start()
 	defer p.Stop()
 
@@ -90,7 +102,7 @@ func TestPool_LimitsConcurrency(t *testing.T) {
 		t.Errorf("pending 数量 %d, want 3", pending)
 	}
 
-	// 轮询（5s deadline）：等到全部 6 个 done（为什么 5s？两批各 2s，第二批 ~4s 完）
+	// 轮询（5s deadline）：等到全部 6 个 done
 	deadline = time.Now().Add(5 * time.Second)
 	for {
 		done := 0
