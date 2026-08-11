@@ -73,7 +73,7 @@ func (c *Client) Chat(ctx context.Context, prompt string) (string, error) {
 	}
 
 	// 3. http.NewRequestWithContext 建请求（POST、URL、body）
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+chatCompletionsPath, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+chatCompletionsPath, bytes.NewReader(chatReqJSON))
 	if err != nil {
 		return "", fmt.Errorf("llm: create request: %w", err)
 	}
@@ -81,8 +81,6 @@ func (c *Client) Chat(ctx context.Context, prompt string) (string, error) {
 	// 4. 设两个 header：Authorization、Content-Type
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
-
-	http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+chatCompletionsPath, bytes.NewReader(chatReqJSON))
 
 	// 5. c.http.Do(req) 发送；检查 StatusCode
 	resp, err := c.http.Do(httpReq)
