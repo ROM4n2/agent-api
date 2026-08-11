@@ -12,6 +12,17 @@ import (
 )
 
 const chatCompletionsPath = "/v1/chat/completions"
+const maxResponseBytes = 1024 * 1024 // 1MB
+
+// APIError 表示上游返回了非 2xx 状态码。
+type APIError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("llm: status %d: %s", e.StatusCode, e.Body)
+}
 
 // 请求
 type chatRequest struct {
@@ -89,14 +100,17 @@ func (c *Client) Chat(ctx context.Context, prompt string) (string, error) {
 	}
 
 	defer resp.Body.Close()
+	// 限制读取的最大字节数，防止返回过大导致内存占用过高
+	body := io.LimitReader(resp.Body, maxResponseBytes)
+
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("llm: unexpected status code: %d, error: %s", resp.StatusCode, string(bodyBytes))
+		bodyBytes, _ := io.ReadAll(body)
+		return "", &APIError{StatusCode: resp.StatusCode, Body: string(bodyBytes)}
 	}
 
 	// 6. json.Decode 响应 → 取 choices[0].message.content 返回
 	var chatResp chatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+	if err := json.NewDecoder(body).Decode(&chatResp); err != nil {
 		return "", fmt.Errorf("llm: decode response: %w", err)
 	}
 
