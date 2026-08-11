@@ -10,11 +10,17 @@ import (
 	"time"
 )
 
+// Pool 用固定数量的 worker goroutine 消费任务队列，
+// 以此限制同时在飞的 LLM 请求数——上游的限流和计费按并发量算。
 type Pool struct {
-	// queue 小写为私有 需要公开方法提交
-	queue  chan string
-	store  *store.Store
-	size   int
+	// 缓冲区大小等于 worker 数：满了 Enqueue 会阻塞调用方（HTTP handler），
+	// 使异步退化为同步。生产上应改为 select+default 快速失败或换持久化队列。
+	queue chan string
+	store *store.Store
+	size  int
+	// ctx/cancel 是关闭信号的广播机制：Stop 一次 cancel，
+	// 所有 worker 与派生出去的请求 ctx 同时收到通知。
+	// 用 cancel 而非 close(queue)，避免向已关闭 channel 发送导致 panic。
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -47,6 +53,8 @@ func (p *Pool) Stop() {
 	p.wg.Wait()
 }
 
+// worker 是常驻 goroutine：循环抢队列里的任务，直到收到关闭信号。
+// wg.Done 用 defer，保证 panic 退出时也不会让 Stop 永久阻塞在 Wait。
 func (p *Pool) worker() {
 	defer p.wg.Done()
 	for {
@@ -61,30 +69,30 @@ func (p *Pool) worker() {
 }
 
 // process 执行单个任务：取 prompt → 调 LLM → 写回结果。
+// 任何错误都在这里终结——worker 是 goroutine，没有调用方可以把 error 返回给谁。
 func (p *Pool) process(id string) {
-	// 1. Update 成 running，检查 error（ErrNotFound → log + return）
-	err := p.store.Update(id, "running")
-	if err != nil {
+	// 先置 running，让轮询方立刻看到状态推进
+	if err := p.store.Update(id, "running"); err != nil {
 		log.Printf("worker: update task %s to running: %v", id, err)
 		return
 	}
 
-	// 2. Get 取出 task，拿 task.Prompt
+	// 队列里只传了 ID，prompt 的权威副本在 store 中
 	task, err := p.store.Get(id)
 	if err != nil {
 		log.Printf("worker: get task %s: %v", id, err)
 		return
 	}
 
-	// 从 p.ctx 派生，服务关闭时在飞的请求会被一起取消
+	// 从 p.ctx 派生（而非 Background）：既有单次期限，
+	// 又能在 Stop 时随父 ctx 一起取消在飞的请求，不必干等超时。
 	taskCtx, cancel := context.WithTimeout(p.ctx, 60*time.Second)
 	defer cancel()
 
-	// 4. p.llm.Chat(taskCtx, task.Prompt)
 	res, err := p.llm.Chat(taskCtx, task.Prompt)
-
-	// 5. 失败：log 全文 + Complete(id, "", 脱敏error)
 	if err != nil {
+		// 错误全文只进日志：它携带上游响应体，可能含配额、账单等内部信息。
+		// task.Error 会经 GET /tasks/{id} 原样返回给调用方，因此只存粗粒度分类。
 		log.Printf("worker: task %s failed: %v", id, err)
 
 		if err := p.store.Complete(id, "", errors.New("upstream error")); err != nil {
@@ -93,7 +101,6 @@ func (p *Pool) process(id string) {
 		return
 	}
 
-	//    成功：Complete(id, result, nil)
 	if err := p.store.Complete(id, res, nil); err != nil {
 		log.Printf("worker: task %s complete failed: %v", id, err)
 	}

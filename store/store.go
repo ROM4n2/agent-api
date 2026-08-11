@@ -1,3 +1,7 @@
+// Package store 提供任务状态的内存存储。
+// 所有方法都可以被多个 goroutine 并发调用。
+//
+// 已知限制：状态只存在进程内存中，进程重启会丢失全部任务。
 package store
 
 import (
@@ -6,32 +10,46 @@ import (
 	"sync"
 )
 
+// ErrNotFound 表示指定 ID 的任务不存在。
+// 调用方应当用 errors.Is 判断，而不是比较字符串。
 var ErrNotFound = errors.New("task not found")
 
+// Store 是任务的并发安全容器。
+//
+// map 本身不支持并发写（会直接 panic），且 Update/Complete 都是
+// 读-改-写的复合操作，必须整段加锁才不会丢更新。
 type Store struct {
 	tasks map[string]Task
 	sync.Mutex
 	nextID int
 }
 
+// Task 是一个异步任务的全部状态。
+//
+// 注意：整个结构体会被 api 层序列化后返回给调用方，
+// 因此不能往任何字段里放上游返回体、密钥等内部信息。
 type Task struct {
 	ID     string
-	Status string
+	Status string // pending | running | done | failed
 	Prompt string
-	Result string
-	Error  string
+	Result string // 仅 done 时有值
+	Error  string // 仅 failed 时有值，且必须是脱敏后的粗粒度分类
 }
 
+// NewStore 返回一个可用的空 Store。
+// 必须用它构造——零值 Store 的 map 为 nil，写入会 panic。
 func NewStore() *Store {
 	var store Store
 	store.tasks = make(map[string]Task)
 	return &store
 }
 
+// Create 登记一个新任务并返回其 ID，初始状态为 pending。
 func (s *Store) Create(prompt string) (id string) {
 	s.Lock()
 	defer s.Unlock()
 
+	// 自增计数器保证 ID 唯一；用 prompt 作键会让重复提交互相覆盖
 	s.nextID++
 	id = strconv.Itoa(s.nextID)
 
@@ -44,6 +62,8 @@ func (s *Store) Create(prompt string) (id string) {
 	return id
 }
 
+// Update 只迁移状态，不触碰 Result 和 Error。
+// 任务不存在时返回 ErrNotFound——不存在的 ID 不能被静默创建出来。
 func (s *Store) Update(ID string, status string) error {
 	s.Lock()
 	defer s.Unlock()
@@ -52,12 +72,20 @@ func (s *Store) Update(ID string, status string) error {
 	if !ok {
 		return ErrNotFound
 	}
+	// 读-改-写：map 里存的是值，必须整个写回才生效
 	task.Status = status
 	s.tasks[ID] = task
 
 	return nil
 }
 
+// Complete 写入任务的终态。err 为 nil 记为 done，否则记为 failed。
+//
+// 由 Store 自己判断终态，调用方就无法拼出「done 却带着错误」这类
+// 自相矛盾的组合——状态与数据的一致性规则只存在这一处。
+//
+// 返回的 error 描述的是存储操作本身是否成功，与 err 参数无关：
+// 任务失败但成功记录下来，返回的仍是 nil。
 func (s *Store) Complete(ID string, result string, err error) error {
 	s.Lock()
 	defer s.Unlock()
@@ -82,6 +110,9 @@ func (s *Store) Complete(ID string, result string, err error) error {
 	return nil
 }
 
+// Get 返回任务的副本。
+// 返回副本而非指针，调用方改动不会污染内部状态，
+// 从设计上消除了一整类数据竞争。
 func (s *Store) Get(ID string) (Task, error) {
 	s.Lock()
 	defer s.Unlock()
