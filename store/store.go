@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"errors"
 	"strconv"
 	"sync"
@@ -19,7 +18,8 @@ type Task struct {
 	ID     string
 	Status string
 	Prompt string
-	Result json.RawMessage
+	Result string
+	Error  string
 }
 
 func NewStore() *Store {
@@ -44,13 +44,42 @@ func (s *Store) Create(prompt string) (id string) {
 	return id
 }
 
-func (s *Store) Update(ID string, status string) {
+func (s *Store) Update(ID string, status string) error {
 	s.Lock()
 	defer s.Unlock()
 
-	task := s.tasks[ID]
+	task, ok := s.tasks[ID]
+	if !ok {
+		return ErrNotFound
+	}
 	task.Status = status
 	s.tasks[ID] = task
+
+	return nil
+}
+
+func (s *Store) Complete(ID string, result string, err error) error {
+	s.Lock()
+	defer s.Unlock()
+	task, ok := s.tasks[ID]
+	if !ok {
+		return ErrNotFound
+	}
+
+	if err != nil {
+		task.Status = "failed"
+		task.Error = err.Error()
+		s.tasks[ID] = task
+
+		return nil
+	}
+
+	task.Status = "done"
+	task.Result = result
+
+	s.tasks[ID] = task
+
+	return nil
 }
 
 func (s *Store) Get(ID string) (Task, error) {
