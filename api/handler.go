@@ -9,7 +9,7 @@ import (
 	"agent-api/worker"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 )
 
@@ -68,7 +68,7 @@ func (h *Handler) HandleRun(w http.ResponseWriter, r *http.Request) {
 	// 响应头已写出，此时无法再改状态码，编码失败只能记日志。
 	// 且这类失败基本只源于客户端断连，重试没有意义。
 	if err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 
 }
@@ -87,6 +87,6 @@ func (h *Handler) HandleGet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	err = json.NewEncoder(w).Encode(task)
 	if err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }

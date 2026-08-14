@@ -6,11 +6,13 @@ import (
 	"agent-api/store"
 	"agent-api/worker"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	apiKey := os.Getenv("DEEPSEEK_API_KEY")
 	if apiKey == "" {
 		log.Fatal("DEEPSEEK_API_KEY is not set")
