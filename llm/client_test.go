@@ -1,30 +1,88 @@
 package llm
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestChat_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 1. 可选但强烈建议：在这里检查请求
-		//    r.Method 是不是 POST？r.URL.Path 是不是 /v1/chat/completions？
-		//    r.Header.Get("Authorization") 是不是 "Bearer test-key"？
-		// 2. 写回一段合法的 chat completions JSON
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"hello"}}]}`)
+
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %v, want %v", r.Method, http.MethodPost)
+		}
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Errorf("path = %v, want %v", r.URL.Path, "/v1/chat/completions")
+		}
+
+		want := "Bearer test-key"
+		if got := r.Header.Get("Authorization"); got != want {
+			t.Errorf("Authorization = %v, want %v", got, want)
+		}
+
 	}))
 	defer srv.Close()
 
-	c := NewClient(Config{APIKey: ..., BaseURL: srv.URL, Model: ...})
+	c := NewClient(Config{APIKey: "test-key", BaseURL: srv.URL, Model: "DeepSeek"})
+
 	got, err := c.Chat(context.Background(), "hi")
-	// 断言：err 为 nil，got 等于你在上面 JSON 里填的 content
+	if err != nil {
+		t.Errorf("Chat: %v", err)
+	}
+	if got != "hello" {
+		t.Errorf("got %q, want %q", got, "hello")
+	}
+
 }
 
 func TestChat_APIError(t *testing.T) {
-	// handler：w.WriteHeader(401) + 写一段错误 body
-	// 断言：errors.As 能取出 *APIError；它的 StatusCode == 401
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, `{"error":{"code":"401","message":"Unauthorized"}}`)
+	}))
+	defer srv.Close()
+
+	c := NewClient(Config{APIKey: "test-key", BaseURL: srv.URL, Model: "DeepSeek"})
+
+	_, err := c.Chat(context.Background(), "hi")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.StatusCode != 401 {
+		t.Errorf("status = %d, want 401", apiErr.StatusCode)
+	}
+
 }
 
 func TestChat_Timeout(t *testing.T) {
-	// handler：先 time.Sleep 一段（比如 200ms），什么都不写
-	// ctx：context.WithTimeout(context.Background(), 50ms)，记得 defer cancel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"hello"}}]}`)
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	c := NewClient(Config{APIKey: "test-key", BaseURL: srv.URL, Model: "DeepSeek"})
+	_, err := c.Chat(ctx, "hi")
+
 	// 断言：errors.Is(err, context.DeadlineExceeded)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Chat: %v", err)
+	}
+
 }
