@@ -9,6 +9,7 @@ coverage.txt
 # IDE
 .vscode/
 .idea/
+.trae/
 
 # OS
 Thumbs.db
