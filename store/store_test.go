@@ -1,11 +1,12 @@
 package store
 
 import (
+	"errors"
 	"testing"
 )
 
 func TestStore_Create(t *testing.T) {
-	s := &Store{tasks: make(map[string]Task)}
+	s := NewStore()
 
 	id := s.Create("hello")
 
@@ -42,7 +43,11 @@ func TestStore_GetNotFound(t *testing.T) {
 }
 
 func TestStore_UpdateStatus(t *testing.T) {
-	s := &Store{tasks: make(map[string]Task)}
+	s := NewStore()
+
+	if err := s.Update("不存在的id", StatusRunning); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Update 返回的不是 ErrNotFound")
+	}
 
 	id := s.Create("hello")
 	s.Update(id, StatusRunning)
@@ -56,5 +61,57 @@ func TestStore_UpdateStatus(t *testing.T) {
 	// 断言：task.Status == StatusRunning
 	if task.Status != StatusRunning {
 		t.Errorf("Get 返回的 Status 不为 running")
+	}
+
+}
+
+func TestStore_Complete_Done(t *testing.T) {
+	s := NewStore()
+	id := s.Create("hello")
+
+	err := s.Complete(id, "world", nil)
+	if err != nil {
+		t.Fatalf("Complete 返回的错误是 %v", err)
+	}
+
+	task, err := s.Get(id)
+	if err != nil {
+		t.Fatalf("Get 返回的错误是 %v", err)
+	}
+
+	if task.Status != StatusDone {
+		t.Errorf("Get 返回的 Status 不为 done")
+	}
+	if task.Result != "world" {
+		t.Errorf("Get 返回的 Result 不为 world")
+	}
+	if task.Error != "" {
+		t.Errorf("Get 返回的 Error 不为空")
+	}
+}
+
+func TestStore_Complete_Failed(t *testing.T) {
+	s := NewStore()
+	id := s.Create("hello")
+
+	err := s.Complete(id, "", errors.New("boom"))
+	if err != nil {
+		t.Fatalf("Complete 返回的错误是 %v", err)
+	}
+
+	// 断言 Get 回来的状态
+	task, err := s.Get(id)
+	if err != nil {
+		t.Fatalf("Get 返回的错误是 %v", err)
+	}
+
+	if task.Status != StatusFailed {
+		t.Errorf("Get 返回的 Status 不为 failed")
+	}
+	if task.Error != "boom" {
+		t.Errorf("Get 返回的 Error 不为 boom")
+	}
+	if task.Result != "" {
+		t.Errorf("Get 返回的 Result 不为空")
 	}
 }
