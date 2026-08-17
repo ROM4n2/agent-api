@@ -3,6 +3,7 @@ package worker
 import (
 	"agent-api/store"
 	"context"
+	"errors"
 	"strconv"
 	"testing"
 	"time"
@@ -10,18 +11,19 @@ import (
 
 type fakeChatter struct {
 	delay time.Duration
+	err   error
 }
 
 func (f fakeChatter) Chat(ctx context.Context, prompt string) (string, error) {
 	// 睡一下模拟耗时，让并发测试能观察到状态
 	// 返回固定字符串，断言才写得出来
 	time.Sleep(f.delay)
-	return "fake response", nil
+	return "fake response", f.err
 }
 
 func TestWorker_ProcessesTask(t *testing.T) {
 	s := store.NewStore()
-	p := NewPool(3, s, fakeChatter{100 * time.Millisecond})
+	p := NewPool(3, s, fakeChatter{100 * time.Millisecond, nil})
 	p.Start()
 	defer p.Stop()
 
@@ -54,9 +56,25 @@ func TestWorker_ProcessesTask(t *testing.T) {
 
 }
 
+func TestWorker_UpdateNotFound(t *testing.T) {
+	s := store.NewStore()
+	p := NewPool(1, s, fakeChatter{0, nil})
+	p.Start()
+	defer p.Stop()
+
+	p.queue <- "不存在的id"
+
+	// 等一下，确认没变成 running
+	time.Sleep(200 * time.Millisecond)
+	task, _ := s.Get("不存在的id")
+	if task.Status == store.StatusRunning {
+		t.Errorf("不存在的任务不应变成 running")
+	}
+}
+
 func TestPool_LimitsConcurrency(t *testing.T) {
 	s := store.NewStore()
-	p := NewPool(3, s, fakeChatter{100 * time.Millisecond}) // 3 个 worker
+	p := NewPool(3, s, fakeChatter{100 * time.Millisecond, nil}) // 3 个 worker
 	p.Start()
 	defer p.Stop()
 
@@ -122,4 +140,34 @@ func TestPool_LimitsConcurrency(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
+}
+
+func TestWorker_ChatFailure(t *testing.T) {
+	s := store.NewStore()
+	fake := fakeChatter{err: errors.New("boom")}
+	p := NewPool(1, s, fake)
+	p.Start()
+	defer p.Stop()
+
+	id := s.Create("hello")
+	p.queue <- id
+
+	// 等到 done（不是 running）——因为失败后 Complete 会把状态设为 failed
+	deadline := time.Now().Add(time.Second)
+	for {
+		task, _ := s.Get(id)
+		if task.Status == store.StatusFailed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("1s 内没变成 failed")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// 断言 Error 字段
+	task, _ := s.Get(id)
+	if task.Error != "upstream error" {
+		t.Errorf("Error = %q, want %q", task.Error, "upstream error")
+	}
 }
