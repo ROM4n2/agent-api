@@ -21,7 +21,7 @@ func (fakeLLM) ChatWithTools(ctx context.Context, msgs []llm.Message, tools []ll
 func newTestMux() (*http.ServeMux, *store.Store) {
 	s := store.NewStore()
 	p := worker.NewPool(3, s, fakeLLM{})
-	h := NewHandler(s, p)
+	h := NewHandler(s, p, "") // 空密钥 = 开发模式，放行
 	return h.Routes(), s
 }
 
@@ -143,6 +143,30 @@ func TestHandleGet_NotFound(t *testing.T) {
 		t.Errorf("code = %d, want 404", rec.Code)
 	}
 
+}
+
+// TestAuth_UsesInjectedKey 验证鉴权密钥来自注入而非环境变量，
+// 配置链路（config → main → Handler）断了这里会红。
+func TestAuth_UsesInjectedKey(t *testing.T) {
+	s := store.NewStore()
+	p := worker.NewPool(1, s, fakeLLM{})
+	h := NewHandler(s, p, "s3cret")
+	mux := h.Routes()
+
+	noAuth := httptest.NewRequest("POST", "/run", strings.NewReader(`{"prompt":"hi"}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, noAuth)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("无 token: code = %d, want 401", rec.Code)
+	}
+
+	withAuth := httptest.NewRequest("POST", "/run", strings.NewReader(`{"prompt":"hi"}`))
+	withAuth.Header.Set("Authorization", "Bearer s3cret")
+	rec2 := httptest.NewRecorder()
+	mux.ServeHTTP(rec2, withAuth)
+	if rec2.Code != http.StatusAccepted {
+		t.Errorf("带正确 token: code = %d, want 202", rec2.Code)
+	}
 }
 
 func TestHealthz(t *testing.T) {

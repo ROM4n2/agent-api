@@ -20,7 +20,7 @@ func TestIntegrationRunToPoll(t *testing.T) {
 	p.Start()
 	defer p.Stop()
 
-	h := NewHandler(s, p)
+	h := NewHandler(s, p, "") // 空密钥 = 开发模式，放行
 	mux := h.Routes()
 
 	// 提交任务

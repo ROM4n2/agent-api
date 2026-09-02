@@ -89,7 +89,7 @@
       <textarea id="prompt" placeholder="例如：帮我算一下 (12+8)*3 是多少？现在几点了？"></textarea>
       <div class="row" style="margin-top:12px">
         <div>
-          <label for="token">Bearer Token（可选，生产环境必填）</label>
+          <label for="token">Bearer Token（可选，生产环境必填；填过一次会记住）</label>
           <input id="token" type="text" placeholder="留空则开发模式直发" autocomplete="off" />
         </div>
       </div>
@@ -106,53 +106,59 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+const TOKEN_KEY = "agent_api_token";
+
+// runId 每次提交自增。旧轮询循环每轮比对它，发现被新提交取代就自行退出，
+// 避免多次提交后多个循环同时刷新同一块输出区。
+let runId = 0;
+
+function authHeaders(token) {
+  return token ? { Authorization: "Bearer " + token } : {};
+}
+
+// explain 把 HTTP 错误翻成人话，401 单独给可行动的提示。
+function explain(res, action) {
+  if (res.status === 401) {
+    return "鉴权失败（401）：Token 与服务端 API_AUTH_KEY 不一致";
+  }
+  return action + "失败：" + res.status;
+}
 
 async function postRun(prompt, token) {
-  const headers = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = "Bearer " + token;
   const res = await fetch("/run", {
     method: "POST",
-    headers,
+    headers: { "Content-Type": "application/json", ...authHeaders(token) },
     body: JSON.stringify({ prompt }),
   });
-  if (!res.ok) throw new Error("提交失败：" + res.status);
+  if (!res.ok) throw new Error(explain(res, "提交"));
   const data = await res.json();
   return data.task_id;
 }
 
 async function getTask(id, token) {
-  const headers = {};
-  if (token) headers["Authorization"] = "Bearer " + token;
-  const res = await fetch("/tasks/" + id, { headers });
-  if (!res.ok) throw new Error("查询失败：" + res.status);
+  const res = await fetch("/tasks/" + id, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error(explain(res, "查询"));
   return res.json();
 }
 
-async function poll(id, token) {
+async function poll(id, token, myRun) {
   for (;;) {
     const task = await getTask(id, token);
+    if (myRun !== runId) return;
+
     setBadge(task.status);
     if (task.status === "done") {
       $("out").textContent = task.result || "(空)";
-      $("meta").textContent = "task_id: " + id;
-      stop("done");
       return;
     }
     if (task.status === "failed") {
       $("out").textContent = task.error || "执行失败";
-      $("meta").textContent = "task_id: " + id;
-      stop("failed");
       return;
     }
     $("out").textContent = "状态：" + task.status + " …";
     await new Promise((r) => setTimeout(r, 1000));
+    if (myRun !== runId) return;
   }
-}
-
-let timer = null;
-function stop(finalStatus) {
-  $("run").disabled = false;
-  if (timer) { clearInterval(timer); timer = null; }
 }
 
 function setBadge(status) {
@@ -165,7 +171,9 @@ $("run").addEventListener("click", async () => {
   const prompt = $("prompt").value.trim();
   const token = $("token").value.trim();
   if (!prompt) { alert("请先填写 prompt"); return; }
+  if (token) localStorage.setItem(TOKEN_KEY, token);
 
+  const myRun = ++runId;
   $("run").disabled = true;
   setBadge("pending");
   $("out").textContent = "提交中…";
@@ -173,14 +181,21 @@ $("run").addEventListener("click", async () => {
 
   try {
     const id = await postRun(prompt, token);
+    if (myRun !== runId) return;
+    $("meta").textContent = "task_id: " + id;
     $("out").textContent = "已提交，轮询中…";
-    poll(id, token);
+    await poll(id, token, myRun);
   } catch (e) {
+    if (myRun !== runId) return;
     setBadge("failed");
     $("out").textContent = String(e.message || e);
-    stop("failed");
+  } finally {
+    if (myRun === runId) $("run").disabled = false;
   }
 });
+
+// 回填上次用过的 Token，省去每次手输
+$("token").value = localStorage.getItem(TOKEN_KEY) || "";
 </script>
 </body>
 </html>
