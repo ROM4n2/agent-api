@@ -48,6 +48,9 @@ func (h *Handler) Routes() *http.ServeMux {
 	// 确保 LB 探活与指标抓取永远可达；/metrics 仅暴露聚合计数，无敏感数据。
 	mux.Handle("GET /healthz", Recover(RequestID(http.HandlerFunc(healthz))))
 	mux.Handle("GET /metrics", Recover(RequestID(metrics.Handler())))
+	// 单页 Demo：GET / 返回内嵌的 demo.html；不走 Auth 以便直接打开，
+	// 页面自身带可选 token 输入框以适配生产鉴权模式。
+	mux.Handle("GET /", Recover(RequestID(http.HandlerFunc(serveDemo))))
 
 	mux.Handle("POST /run", wrap(http.HandlerFunc(h.HandleRun)))
 	// 路径是复数 tasks，与 HandleGet 的取值 r.PathValue("id") 配套

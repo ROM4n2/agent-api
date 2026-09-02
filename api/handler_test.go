@@ -180,3 +180,20 @@ func TestMetrics(t *testing.T) {
 		}
 	}
 }
+
+func TestDemoPage(t *testing.T) {
+	mux, _ := newTestMux()
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("code = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
+		t.Errorf("Content-Type = %q, want text/html", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "agent-api") {
+		t.Errorf("demo body missing expected marker")
+	}
+}
