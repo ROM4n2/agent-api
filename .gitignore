@@ -18,3 +18,18 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+handoff-agent-api.md
+
+# Sensitive credentials & secrets
+config.yaml
+config.yml
+.env.*
+*.secret
+*.pem
+*.key
+*.local.json
+
+# Local workspace AI memory/data (not project source)
+.codebuddy/
+
