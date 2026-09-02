@@ -1,6 +1,8 @@
 # Agent API
 
-异步任务 + Worker Pool + LLM 调用的 Go 后端服务。客户端提交 prompt，服务异步调用 DeepSeek 生成结果，通过轮询获取。
+异步任务 + Worker Pool + LLM Agent 的 Go 后端服务。客户端提交 prompt，服务异步调用 DeepSeek：
+worker 以 **think → call tool → observe** 的多步循环执行 agent（内置 `calculate` / `current_time` 工具），
+通过轮询获取结果。
 
 ## Architecture
 
@@ -12,12 +14,17 @@
   │                         │   queue(chan string)
   │                         │         ▼
   │                         │  [worker 1][worker 2][worker 3]
-  │                         │   store.Update(running) → llm.Chat(prompt)
+  │                         │   store.Update(running)
+  │                         │         ▼
+  │                         │   runAgent: llm.ChatWithTools ⇄ 执行工具(calc/time)
   │                         │         ▼
   │                         │   store.Complete → done / failed
   │ GET /tasks/{id} 轮询    │
   │───────────────────────→│ api: store.Get(id) → Task JSON (200)
 ```
+
+> 中间件链：`Recover → RequestID → 限流(20/s, 突发40) → 鉴权(Bearer)`。
+> 生产必须设 `API_AUTH_KEY` 开启鉴权；不设则开发模式放行。
 
 ## Quick Start
 
@@ -25,6 +32,8 @@
 
 ```powershell
 $env:DEEPSEEK_API_KEY = "sk-你的key"
+# 可选：设了才开启 Bearer 鉴权；不设则开发模式放行
+$env:API_AUTH_KEY = "你的服务端密钥"
 go run .
 ```
 
@@ -32,7 +41,7 @@ go run .
 
 ```powershell
 docker build -t agent-api .
-docker run -e DEEPSEEK_API_KEY=sk-你的key -p 8080:8080 agent-api
+docker run -e DEEPSEEK_API_KEY=sk-你的key -e API_AUTH_KEY=你的服务端密钥 -p 8080:8080 agent-api
 ```
 
 ### 验证
