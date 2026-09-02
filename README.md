@@ -32,14 +32,31 @@ worker 以 **think → call tool → observe** 的多步循环执行 agent（内
 
 ## Quick Start
 
-### 本地运行
+### 配置密钥
+
+两种配置方式，**环境变量优先级更高**（会覆盖配置文件）：
 
 ```powershell
+# 方式一：环境变量
 $env:DEEPSEEK_API_KEY = "sk-你的key"
-# 可选：设了才开启 Bearer 鉴权；不设则开发模式放行
-$env:API_AUTH_KEY = "你的服务端密钥"
+$env:API_AUTH_KEY = "你的服务端密钥"   # 可选，不设则开发模式放行鉴权
 go run .
 ```
+
+```powershell
+# 方式二：配置文件（推荐本地开发，配一次即可）
+Copy-Item config.yaml.example config.yaml   # 然后填真实值
+go run .
+```
+
+`config.yaml` 已被 `.gitignore` 忽略。只支持扁平的 `key: value`，解析到嵌套或未知 key 会直接启动失败，不静默忽略：
+
+```yaml
+deepseek_api_key: "sk-你的key"
+api_auth_key: "你的服务端密钥"
+```
+
+没有配置文件也没设环境变量时，服务会打印错误并以退出码 1 退出。
 
 ### Docker
 
@@ -73,7 +90,7 @@ Invoke-RestMethod -Uri http://localhost:8080/metrics
 | Method | Path | 说明 | Request Body | Response |
 |--------|------|------|-------------|----------|
 | POST | `/run` | 提交任务 | `{"prompt":"..."}` | `202 {"task_id":"1"}` |
-| GET | `/tasks/{id}` | 查询状态 | - | `{"ID":"1","Status":"done","Prompt":"...","Result":"...","Error":""}` |
+| GET | `/tasks/{id}` | 查询状态 | - | `{"id":"1","status":"done","prompt":"...","result":"...","error":""}` |
 | GET | `/healthz` | 存活探针 | - | `200 ok`（纯文本） |
 | GET | `/metrics` | Prometheus 指标 | - | `agent_tasks_*` 文本格式 |
 | GET | `/` | 单页 Demo | - | `text/html` 页面 |
@@ -101,7 +118,10 @@ Status 取值：`pending` → `running` → `done` / `failed`
 
 启动后浏览器打开 http://localhost:8080 即可提交 prompt，页面会轮询展示状态演进
 （`pending → running → done`）与最终结果。页面是零依赖单页，通过 `go:embed` 内嵌进二进制，
-无需外部文件、可离线访问。生产环境（设了 `API_AUTH_KEY`）在页面 Token 框填入同一密钥。
+无需外部文件、可离线访问。
+
+Token 框填一次就会存进浏览器 `localStorage`，下次打开自动回填，不必每次手输。
+填的值必须与服务端 `api_auth_key` 一致，否则 `/run` 会返回 401。
 
 ## Testing
 
@@ -126,6 +146,7 @@ agent-api/
 │   ├── middleware.go  # Recover / RequestID / 限流 / 鉴权
 │   ├── demo.go        # go:embed 单页 Demo
 │   └── demo.html
+├── config/            # 配置加载：环境变量 > config.yaml（扁平解析，零依赖）
 ├── store/             # 任务存储：内存 map + Mutex，状态机
 ├── worker/            # Worker Pool + agent 工具调用循环
 ├── llm/               # LLM 客户端：封装 DeepSeek API 调用
