@@ -1,59 +1,14 @@
-#!/bin/sh
-# pre-commit: 拦截提交中可能的 API key 泄露
-# 用 --no-verify 可跳过（请只在确认误报时使用）
+#!/usr/bin/env bash
+# Git Pre-commit Secret Scanner Hook
+set -euo pipefail
 
-# 1. 检查 SKIP_KEY_CHECK 标志（CI 或调试时可临时关闭）
-if [ "$SKIP_KEY_CHECK" = "1" ]; then
-    exit 0
-fi
+SECRET_PATTERN='(sk-[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16}|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}|AIza[A-Za-z0-9_-]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
 
-# 2. 只扫描 Go/YAML/Markdown 源码文件，跳过测试和文档
-files=$(git diff --cached --name-only --diff-filter=ACM -- '*.go' '*.yaml' '*.yml' '*.md' \
-    ':!*_test.go' \
-    ':!docs/' \
-    ':!README*' \
-    ':!CHANGELOG*' \
-    ':!MILESTONES*' \
-    ':!PLAN*' \
-    ':!GO-STANDARDS*' \
-    ':!GO-CHEATSHEET*')
-
-[ -z "$files" ] && exit 0
-
-# 3. 用临时文件收集发现的问题（避免子 shell 丢失退出码）
-found=$(mktemp)
-trap 'rm -f "$found"' EXIT
-
-for file in $files; do
-    [ -f "$file" ] || continue
-    staged=$(git show ":$file" 2>/dev/null) || continue
-
-    # 4. 扫描已知的 key 格式（用 grep -Ei 一次匹配所有模式）
-    echo "$staged" | grep -nEi \
-        'sk-[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16}|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}|AIzaSy[A-Za-z0-9_-]{33}|sk-ant-[A-Za-z0-9-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----' \
-        > /tmp/_hook_hits_$$ 2>/dev/null
-
-    [ -s /tmp/_hook_hits_$$ ] || continue
-
-    # 发现问题：记录文件名到 found，逐行输出警告
-    echo "1" >> "$found"
-    while IFS=: read -r line content; do
-        echo ""
-        echo "  ⛔  $file:$line"
-        echo "       $content"
-    done < /tmp/_hook_hits_$$
-    rm -f /tmp/_hook_hits_$$
-done
-
-# 5. 根据 found 文件是否存在决定是否拦截
-if [ -s "$found" ]; then
-    echo ""
-    echo "  疑似 API key 或私钥，提交被拒绝。"
-    echo ""
-    echo "  确认是误报（占位符/示例）？跳过检查："
-    echo "       git commit --no-verify"
-    echo ""
+STAGED_DIFF=$(git diff --cached --unified=0)
+if echo "$STAGED_DIFF" | grep -nE "$SECRET_PATTERN" > /dev/null 2>&1; then
+    echo "❌ [SECURITY ALERT] Potential secret/token detected in staged commit!"
+    echo "$STAGED_DIFF" | grep -nE "$SECRET_PATTERN"
+    echo "Commit aborted. Remove secret or store in ignored environment variables."
     exit 1
 fi
-
 exit 0
