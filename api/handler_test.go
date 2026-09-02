@@ -144,3 +144,39 @@ func TestHandleGet_NotFound(t *testing.T) {
 	}
 
 }
+
+func TestHealthz(t *testing.T) {
+	mux, _ := newTestMux()
+	req := httptest.NewRequest("GET", "/healthz", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("code = %d, want 200", rec.Code)
+	}
+	if got := rec.Body.String(); got != "ok" {
+		t.Errorf("body = %q, want ok", got)
+	}
+}
+
+func TestMetrics(t *testing.T) {
+	mux, _ := newTestMux()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("code = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"# TYPE agent_tasks_submitted counter",
+		"# TYPE agent_tasks_running gauge",
+		"agent_tasks_done",
+		"agent_tasks_failed",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("metrics body missing %q; got:\n%s", want, body)
+		}
+	}
+}

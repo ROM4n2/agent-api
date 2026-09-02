@@ -10,6 +10,7 @@ import (
 	"agent-api/worker"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 )
@@ -43,10 +44,23 @@ func (h *Handler) Routes() *http.ServeMux {
 		return Recover(RequestID(limiter.Limit(auth(hh))))
 	}
 
+	// 探针与指标：只包 Recover+RequestID，不走 Limit/Auth，
+	// 确保 LB 探活与指标抓取永远可达；/metrics 仅暴露聚合计数，无敏感数据。
+	mux.Handle("GET /healthz", Recover(RequestID(http.HandlerFunc(healthz))))
+	mux.Handle("GET /metrics", Recover(RequestID(metrics.Handler())))
+
 	mux.Handle("POST /run", wrap(http.HandlerFunc(h.HandleRun)))
 	// 路径是复数 tasks，与 HandleGet 的取值 r.PathValue("id") 配套
 	mux.Handle("GET /tasks/{id}", wrap(http.HandlerFunc(h.HandleGet)))
 	return mux
+}
+
+// healthz 是存活探针：进程能响应即视为活着，不涉及任务状态，也不鉴权，
+// 因此不被 Limit/Auth 包裹，避免探针因限流或缺少 token 而误报不健康。
+func healthz(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, "ok")
 }
 
 // HandleRun 接收任务并立即返回 task_id，不等待执行结果。
