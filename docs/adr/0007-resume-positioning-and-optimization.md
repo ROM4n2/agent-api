@@ -1,7 +1,7 @@
 # ADR-0007：项目简历定位与优化路线
 
 - **日期**：2026-09-02
-- **状态**：草稿（待用户确认）
+- **状态**：已接受（P0 / P1 已于 2026-09-02 实施完成）
 
 ## 背景
 
@@ -17,7 +17,7 @@
 - 异步任务 + Worker Pool：清晰展示 goroutine / channel / 并发上限的**真实动机**（限 LLM 成本，非限 goroutine）。
 - 并发安全：Store 用 Mutex 全段加锁、`Get` 返回值副本消除 data race——这是面试高频题，且代码正确。
 - 依赖倒置：`worker` 定义 `chatter` 接口、`llm.Client` 注入——可测试性满分（mock 无网跑单测）。
-- 工程素养：**17 个单测全绿**、注释讲"为什么"、优雅停机用 context cancel、错误脱敏。
+- 工程素养：**25 个单测全绿**（含 `httptest` 端到端集成测试与 benchmark）、注释讲"为什么"、优雅停机用 context cancel、错误脱敏。
 - **最大差异化**：配套 6 篇 ADR，能当场讲清每个决策的 trade-off。多数候选人有代码没思考。
 
 **致命短板（面试会被追问的弱点）**
@@ -26,6 +26,9 @@
 2. **广度偏窄**：无持久化、无鉴权、无限流、无中间件、无可观测性（metrics/trace）、无流式。
    暴露的 Go 知识面局限于"并发 + HTTP 基础"。
 3. **不可演示**：只有一个 curl/Invoke-RestMethod 验证，缺一个能一眼看懂成果的前端或 demo 脚本。
+
+> 以上 1–3 是 2026-09-02 评估时的原始短板；P0/P1 实施后 1 与 3 已消除、2 已大幅改善，
+> 详见文末「执行状态」。保留原文以体现"发现问题 → 决策 → 落地"的完整叙事，这本身也是面试素材。
 
 ### 🤖 技术与系统工程层
 
@@ -66,6 +69,17 @@
 
 > 注意：优化时要**守住 ADR-0004/0005/0006 的 YAGNI 纪律**——加功能是为展示能力，
 > 不是为堆砌。每个新增项都应有对应 ADR 或注释说明"为什么此时做"。
+
+## 执行状态（2026-09-02 更新）
+
+- ✅ **P0 已完成**：真 agent 能力（工具调用循环，见 ADR-0008）；HTTP 中间件链（Recover / RequestID / 限流 / 鉴权）。
+- ✅ **P1 已完成**：
+  - 可观测性：`GET /metrics`（`sync/atomic` 计数 + Prometheus 文本格式，零依赖）、`GET /healthz`。
+  - Demo 页：`GET /` 单页（`go:embed` 内嵌，离线可用），提交 prompt 并轮询展示结果。
+  - 测试增强：`httptest` 端到端集成测试；`BenchmarkPoolEnqueue` ≈ 1.5 µs/op、`BenchmarkRunAgent` ≈ 84 ns/op。
+- ⏳ **P2 待定**：SSE 流式 token；可选 SQLite 后端（store 抽接口，内存/SQLite 双实现）。
+- 实施计划见 `docs/implementation_plan_p1.md`。
+- 当前测试基线：**25 passed / 0 failed**（api 9 · llm 3 · store 5 · worker 6 · metrics 2）。
 
 ## 后果
 
