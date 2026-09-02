@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"agent-api/llm"
 	"agent-api/store"
 	"context"
 	"errors"
@@ -14,11 +15,11 @@ type fakeChatter struct {
 	err   error
 }
 
-func (f fakeChatter) Chat(ctx context.Context, prompt string) (string, error) {
+func (f fakeChatter) ChatWithTools(ctx context.Context, msgs []llm.Message, tools []llm.Tool) (*llm.AssistantTurn, error) {
 	// 睡一下模拟耗时，让并发测试能观察到状态
 	// 返回固定字符串，断言才写得出来
 	time.Sleep(f.delay)
-	return "fake response", f.err
+	return &llm.AssistantTurn{Content: "fake response"}, f.err
 }
 
 func TestWorker_ProcessesTask(t *testing.T) {

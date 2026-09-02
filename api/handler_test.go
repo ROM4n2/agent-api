@@ -1,6 +1,7 @@
 package api
 
 import (
+	"agent-api/llm"
 	"agent-api/store"
 	"agent-api/worker"
 	"context"
@@ -13,8 +14,8 @@ import (
 
 type fakeLLM struct{}
 
-func (fakeLLM) Chat(ctx context.Context, prompt string) (string, error) {
-	return "fake response", nil
+func (fakeLLM) ChatWithTools(ctx context.Context, msgs []llm.Message, tools []llm.Tool) (*llm.AssistantTurn, error) {
+	return &llm.AssistantTurn{Content: "fake response"}, nil
 }
 
 func newTestMux() (*http.ServeMux, *store.Store) {
