@@ -5,6 +5,7 @@
 package api
 
 import (
+	"agent-api/metrics"
 	"agent-api/store"
 	"agent-api/worker"
 	"encoding/json"
@@ -72,6 +73,7 @@ func (h *Handler) HandleRun(w http.ResponseWriter, r *http.Request) {
 	// 先落库再入队：Enqueue 之后 worker 可能立刻开始处理，
 	// 此时该 ID 必须已经存在于 store 中。
 	id := h.store.Create(req.Prompt)
+	metrics.IncSubmitted() // 提交即计数，同时在飞数 +1
 	h.pool.Enqueue(id)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

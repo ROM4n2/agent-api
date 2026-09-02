@@ -2,6 +2,7 @@ package worker
 
 import (
 	"agent-api/llm"
+	"agent-api/metrics"
 	"agent-api/store"
 	"context"
 	"encoding/json"
@@ -107,12 +108,14 @@ func (p *Pool) process(id string) {
 		// task.Error 会经 GET /tasks/{id} 原样返回给调用方，因此只存粗粒度分类。
 		slog.Error("worker: task %s failed: %v", id, err)
 
+		metrics.IncFailed() // 终态：在飞数 -1，失败数 +1
 		if err := p.tasks.Complete(id, "", errors.New("upstream error")); err != nil {
 			slog.Error("worker: task %s complete failed: %v", id, err)
 		}
 		return
 	}
 
+	metrics.IncDone() // 终态：在飞数 -1，完成数 +1
 	if err := p.tasks.Complete(id, res, nil); err != nil {
 		slog.Error("worker: task %s complete failed: %v", id, err)
 	}
