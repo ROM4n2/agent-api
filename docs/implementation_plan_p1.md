@@ -1,6 +1,6 @@
 # P1 可观测 + Demo + 测试增强 Implementation Plan
 
-> **Goal**: 给 agent-api 增加可观测端点（`/healthz`、`/metrics`）、一个零依赖单页 Demo，以及 httptest 集成测试 + pool benchmark，把项目从「代码」变成「可演示、可观测的服务」。
+> **Goal**: 给 agent-api 增加可观测端点（`/healthz`、`/metrics`）、一个零依赖单页 Demo，以及 httptest 集成测试 + pool benchmark。
 > **Tech Stack**: Go 1.26 (stdlib only)
 > **Spec Reference**: `docs/adr/0007-resume-positioning-and-optimization.md` (P1 项)
 > **Global Constraints**:
@@ -57,7 +57,7 @@
 - Consumes: `metrics.Handler()`
 - Produces: 无新类型，仅路由注册
 
-**设计要点**: `/healthz` 仅包 `Recover(RequestID(...))`（探活不被限流/鉴权挡）；`/metrics` 同样不加 auth（只暴露聚合计数，无敏感数据），但加 `Recover(RequestID(...))`。两者都不走 `Limit`/`Auth`，保证 LB 探针与 scraper 永远可达。
+**设计要点**: `/healthz` 与 `/metrics` 都只包 `Recover(RequestID(...))`，不走 `Limit`/`Auth`，保证 LB 探针与指标抓取可达。`/metrics` 只暴露聚合计数，无敏感数据。
 
 **Subagent Prompt Scaffold (for /vault-exec):**
 > "Implement Task 2: 注册 /healthz 与 /metrics。
