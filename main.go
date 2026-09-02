@@ -2,6 +2,7 @@ package main
 
 import (
 	"agent-api/api"
+	"agent-api/config"
 	"agent-api/llm"
 	"agent-api/store"
 	"agent-api/worker"
@@ -21,9 +22,16 @@ func main() {
 
 func run() int {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-	apiKey := os.Getenv("DEEPSEEK_API_KEY")
+
+	// 配置来源：环境变量优先，其次 config.yaml（文件可选）。
+	conf, err := config.Load("")
+	if err != nil {
+		slog.Error("load config", slog.Any("error", err))
+		return 1
+	}
+	apiKey := conf.DeepSeekAPIKey
 	if apiKey == "" {
-		slog.Error("DEEPSEEK_API_KEY is not set")
+		slog.Error("DEEPSEEK_API_KEY is not set（环境变量或 config.yaml 任选其一）")
 		return 1
 	}
 
@@ -42,7 +50,7 @@ func run() int {
 	p.Start()
 	defer p.Stop()
 
-	h := api.NewHandler(s, p)
+	h := api.NewHandler(s, p, conf.APIAuthKey)
 	mux := h.Routes()
 
 	srv := &http.Server{

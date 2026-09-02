@@ -1,0 +1,80 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// isolateEnv 清空可能干扰断言的环境变量，避免宿主环境里已设的 key 让测试失真。
+func isolateEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	t.Setenv("API_AUTH_KEY", "")
+}
+
+func writeCfg(t *testing.T, content string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestLoad_MissingFileIsNotAnError(t *testing.T) {
+	isolateEnv(t)
+	cfg, err := Load(filepath.Join(t.TempDir(), "nope.yaml"))
+	if err != nil {
+		t.Fatalf("配置文件可选，不应报错：%v", err)
+	}
+	if cfg != (Config{}) {
+		t.Errorf("cfg = %+v, want zero", cfg)
+	}
+}
+
+func TestLoad_ParsesFileAndStripsQuotes(t *testing.T) {
+	isolateEnv(t)
+	p := writeCfg(t, "# 注释行\ndeepseek_api_key: sk-file\napi_auth_key: \"s3cret\"\n\n")
+
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DeepSeekAPIKey != "sk-file" {
+		t.Errorf("DeepSeekAPIKey = %q, want sk-file", cfg.DeepSeekAPIKey)
+	}
+	if cfg.APIAuthKey != "s3cret" {
+		t.Errorf("APIAuthKey = %q, want s3cret（引号应被剥掉）", cfg.APIAuthKey)
+	}
+}
+
+func TestLoad_EnvOverridesFile(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "sk-env")
+	t.Setenv("API_AUTH_KEY", "")
+	p := writeCfg(t, "deepseek_api_key: sk-file\n")
+
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DeepSeekAPIKey != "sk-env" {
+		t.Errorf("DeepSeekAPIKey = %q, want sk-env（环境变量优先）", cfg.DeepSeekAPIKey)
+	}
+}
+
+func TestLoad_UnknownKeyRejected(t *testing.T) {
+	isolateEnv(t)
+	p := writeCfg(t, "nope: 1\n")
+	if _, err := Load(p); err == nil {
+		t.Error("未知配置项应报错，避免拼错的 key 被静默忽略")
+	}
+}
+
+func TestLoad_MalformedLineRejected(t *testing.T) {
+	isolateEnv(t)
+	p := writeCfg(t, "deepseek_api_key sk-file\n")
+	if _, err := Load(p); err == nil {
+		t.Error("缺少冒号的行应报错")
+	}
+}

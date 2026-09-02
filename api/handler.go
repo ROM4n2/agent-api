@@ -19,10 +19,13 @@ import (
 type Handler struct {
 	store *store.Store
 	pool  *worker.Pool
+	// authKey 由 main 从 config 注入，不在 api 层读环境变量：
+	// 配置来源只有一个（main），测试才能直接注入不同密钥。
+	authKey string
 }
 
-func NewHandler(s *store.Store, p *worker.Pool) *Handler {
-	return &Handler{store: s, pool: p}
+func NewHandler(s *store.Store, p *worker.Pool, authKey string) *Handler {
+	return &Handler{store: s, pool: p, authKey: authKey}
 }
 
 // Routes 返回已注册全部路由的 mux。
@@ -38,7 +41,7 @@ func (h *Handler) Routes() *http.ServeMux {
 
 	// 限流器：每秒 20 请求、突发 40，足以覆盖正常轮询又挡住刷量。
 	limiter := newRateLimiter(20, 40)
-	auth := Auth(authKeyFromEnv())
+	auth := Auth(h.authKey)
 
 	wrap := func(hh http.Handler) http.Handler {
 		return Recover(RequestID(limiter.Limit(auth(hh))))

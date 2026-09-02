@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -59,8 +58,8 @@ func formatRequestID(n uint64) string {
 	return string(buf[:])
 }
 
-// Auth 做 Bearer Token 鉴权。expectedKey 为空时进入开发模式——直接放行，
-// 但生产必须设 API_AUTH_KEY，否则任何人都可提交任务、消耗 LLM 配额。
+// Auth 做 Bearer Token 鉴权。expectedKey 由调用方注入（来自 config），
+// 为空时进入开发模式直接放行；生产必须配置，否则任何人都可提交任务、消耗 LLM 配额。
 func Auth(expectedKey string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -154,9 +153,4 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
-}
-
-// authKeyFromEnv 读取鉴权密钥；未设置返回空串（开发模式放行）。
-func authKeyFromEnv() string {
-	return os.Getenv("API_AUTH_KEY")
 }

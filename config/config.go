@@ -1,0 +1,104 @@
+// Package config 加载启动所需的敏感配置。
+//
+// 优先级：环境变量 > config.yaml > 零值。
+// 配置文件可选：文件不存在时按"没配"处理，纯环境变量的用法不受影响。
+package config
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strings"
+)
+
+// Config 是启动所需的外部配置。项目只有这两个值需要外部提供。
+type Config struct {
+	DeepSeekAPIKey string
+	APIAuthKey     string
+}
+
+// defaultPath 是约定俗成的配置文件位置，相对进程工作目录。
+const defaultPath = "config.yaml"
+
+// Load 读取配置文件，再用环境变量覆盖同名项。
+func Load(path string) (Config, error) {
+	if path == "" {
+		path = defaultPath
+	}
+	fileCfg, err := loadFile(path)
+	if err != nil {
+		return Config{}, err
+	}
+	return Config{
+		DeepSeekAPIKey: firstNonEmpty(os.Getenv("DEEPSEEK_API_KEY"), fileCfg.DeepSeekAPIKey),
+		APIAuthKey:     firstNonEmpty(os.Getenv("API_AUTH_KEY"), fileCfg.APIAuthKey),
+	}, nil
+}
+
+// firstNonEmpty 返回第一个非空值，用于实现"环境变量覆盖文件"。
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// loadFile 解析扁平配置文件。
+//
+// 支持范围只有这一个子集：每行一个 "key: value"，# 开头为注释，值可用引号包裹。
+// 超出子集的内容（嵌套、列表、缺冒号的行）一律报错，不静默误解析。
+// 配置解析出错比启动失败更难排查，宁可启动失败也要把错误说清楚。
+func loadFile(path string) (Config, error) {
+	var cfg Config
+
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// 配置文件是可选的，缺文件不是错误
+			return cfg, nil
+		}
+		return cfg, fmt.Errorf("config: open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	lineNo := 0
+	for sc.Scan() {
+		lineNo++
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			return cfg, fmt.Errorf("config: %s:%d 不是 key: value 格式：%q", path, lineNo, line)
+		}
+		key = strings.TrimSpace(key)
+		value = unquote(strings.TrimSpace(value))
+
+		switch key {
+		case "deepseek_api_key":
+			cfg.DeepSeekAPIKey = value
+		case "api_auth_key":
+			cfg.APIAuthKey = value
+		default:
+			return cfg, fmt.Errorf("config: %s:%d 未知配置项 %q（只支持 deepseek_api_key、api_auth_key）", path, lineNo, key)
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return cfg, fmt.Errorf("config: read %s: %w", path, err)
+	}
+	return cfg, nil
+}
+
+// unquote 剥掉成对的首尾引号，让值里可以安全的以空格或 # 开头。
+func unquote(s string) string {
+	if len(s) >= 2 {
+		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
+}
