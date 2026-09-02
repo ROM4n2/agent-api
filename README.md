@@ -25,6 +25,10 @@ worker 以 **think → call tool → observe** 的多步循环执行 agent（内
 
 > 中间件链：`Recover → RequestID → 限流(20/s, 突发40) → 鉴权(Bearer)`。
 > 生产必须设 `API_AUTH_KEY` 开启鉴权；不设则开发模式放行。
+>
+> 路由分两组：业务路由（`POST /run`、`GET /tasks/{id}`）走完整中间件链；
+> 运维/演示路由（`GET /healthz`、`GET /metrics`、`GET /`）只走 `Recover → RequestID`，
+> 保证探活与指标抓取不被限流或鉴权挡住。
 
 ## Quick Start
 
@@ -54,6 +58,14 @@ Invoke-RestMethod -Uri http://localhost:8080/run -Method Post `
 
 # 查询结果（task_id 换成实际返回的值）
 Invoke-RestMethod -Uri http://localhost:8080/tasks/1
+
+# 存活探针
+Invoke-RestMethod -Uri http://localhost:8080/healthz
+
+# 指标
+Invoke-RestMethod -Uri http://localhost:8080/metrics
+
+# 浏览器打开 http://localhost:8080 使用单页 Demo
 ```
 
 ## API
@@ -62,27 +74,69 @@ Invoke-RestMethod -Uri http://localhost:8080/tasks/1
 |--------|------|------|-------------|----------|
 | POST | `/run` | 提交任务 | `{"prompt":"..."}` | `202 {"task_id":"1"}` |
 | GET | `/tasks/{id}` | 查询状态 | - | `{"ID":"1","Status":"done","Prompt":"...","Result":"...","Error":""}` |
+| GET | `/healthz` | 存活探针 | - | `200 ok`（纯文本） |
+| GET | `/metrics` | Prometheus 指标 | - | `agent_tasks_*` 文本格式 |
+| GET | `/` | 单页 Demo | - | `text/html` 页面 |
 
 Status 取值：`pending` → `running` → `done` / `failed`
 
 并发上限 3 个任务同时执行，超出部分排队等待。
+
+## Observability
+
+`GET /metrics` 以 Prometheus 文本格式暴露进程内计数（`sync/atomic` 实现，零第三方依赖）：
+
+| 指标 | 类型 | 含义 |
+|------|------|------|
+| `agent_tasks_submitted` | counter | 累计提交任务数 |
+| `agent_tasks_running` | gauge | 当前在飞任务数（提交 +1，终态 -1） |
+| `agent_tasks_done` | counter | 累计成功完成数 |
+| `agent_tasks_failed` | counter | 累计失败数 |
+
+`GET /healthz` 返回 `200 ok`，仅表示进程存活，不涉及任务状态。
+
+指标只暴露聚合计数，绝不包含任务内容或上游响应体。
+
+## Demo
+
+启动后浏览器打开 http://localhost:8080 即可提交 prompt，页面会轮询展示状态演进
+（`pending → running → done`）与最终结果。页面是零依赖单页，通过 `go:embed` 内嵌进二进制，
+无需外部文件、可离线访问。生产环境（设了 `API_AUTH_KEY`）在页面 Token 框填入同一密钥。
+
+## Testing
+
+```powershell
+go test ./... -count=1                 # 25 个测试全绿
+go test -bench=. -benchmem ./worker/   # 基准测试
+```
+
+- **单测**：store 状态机、worker 并发上限、agent 工具调用循环、llm 请求/响应解析、metrics 计数。
+- **集成测试**：`api/integration_test.go` 用 `httptest` 端到端跑通 `POST /run → 轮询 → done`。
+- **Benchmark**：
+  - `BenchmarkPoolEnqueue` ≈ 1.5 µs/op（3 worker 调度吞吐）
+  - `BenchmarkRunAgent` ≈ 84 ns/op（单步 agent 循环开销）
 
 ## Project Structure
 
 ```
 agent-api/
 ├── main.go            # 入口：环境变量 → 组装依赖 → 启动服务
-├── api/               # HTTP 层：路由、请求解析、响应编码
+├── api/               # HTTP 层
+│   ├── handler.go     # 路由注册：/run、/tasks/{id}、/healthz、/metrics、/
+│   ├── middleware.go  # Recover / RequestID / 限流 / 鉴权
+│   ├── demo.go        # go:embed 单页 Demo
+│   └── demo.html
 ├── store/             # 任务存储：内存 map + Mutex，状态机
-├── worker/            # Worker Pool：goroutine 消费队列，调用 LLM
+├── worker/            # Worker Pool + agent 工具调用循环
 ├── llm/               # LLM 客户端：封装 DeepSeek API 调用
-├── docs/              # 项目文档、面试准备
+├── metrics/           # 进程内计数 + Prometheus 文本格式（零依赖）
+├── docs/              # 项目文档、ADR、实施计划
 └── Dockerfile         # 多阶段构建
 ```
 
 ## Tech Stack
 
-Go 1.26 · slog · Docker · DeepSeek API · `net/http` (stdlib)
+Go 1.26 · slog · Docker · DeepSeek API · 仅标准库（`net/http` / `embed` / `httptest` / `sync/atomic`），零第三方依赖
 
 ## License
 
