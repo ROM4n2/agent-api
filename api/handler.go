@@ -27,11 +27,24 @@ func NewHandler(s *store.Store, p *worker.Pool) *Handler {
 //
 // 用的是 Go 1.22+ ServeMux 的方法路由语法："METHOD /path"，
 // 方法与路径一起参与匹配，因此不必在 handler 内部自己判断 r.Method。
+//
+// 每个路由都经过同一中间件链：Recover（防 panic 拖垮进程）→
+// RequestID（日志串联）→ Limit（按 IP 限流护住 LLM 配额）→
+// Auth（Bearer 鉴权，生产必须设 API_AUTH_KEY）。
 func (h *Handler) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /run", h.HandleRun)
+
+	// 限流器：每秒 20 请求、突发 40，足以覆盖正常轮询又挡住刷量。
+	limiter := newRateLimiter(20, 40)
+	auth := Auth(authKeyFromEnv())
+
+	wrap := func(hh http.Handler) http.Handler {
+		return Recover(RequestID(limiter.Limit(auth(hh))))
+	}
+
+	mux.Handle("POST /run", wrap(http.HandlerFunc(h.HandleRun)))
 	// 路径是复数 tasks，与 HandleGet 的取值 r.PathValue("id") 配套
-	mux.HandleFunc("GET /tasks/{id}", h.HandleGet)
+	mux.Handle("GET /tasks/{id}", wrap(http.HandlerFunc(h.HandleGet)))
 	return mux
 }
 

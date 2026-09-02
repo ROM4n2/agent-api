@@ -1,8 +1,10 @@
 package worker
 
 import (
+	"agent-api/llm"
 	"agent-api/store"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"sync"
@@ -12,7 +14,8 @@ import (
 // chatter 抽象 process 所需的 LLM 能力，
 // 使测试可以注入不发真实请求的实现。
 type chatter interface {
-	Chat(ctx context.Context, prompt string) (string, error)
+	// ChatWithTools 发送带工具定义的对话，返回模型本轮回复（终态文本或工具调用）。
+	ChatWithTools(ctx context.Context, msgs []llm.Message, tools []llm.Tool) (*llm.AssistantTurn, error)
 }
 
 // Pool 用固定数量的 worker goroutine 消费任务队列，
@@ -29,7 +32,9 @@ type Pool struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-	llm    chatter
+	llm      chatter
+	tools    []llm.Tool            // 注册给模型的工具描述
+	handlers map[string]toolHandler // 工具名 -> 本地执行器
 }
 
 func NewPool(size int, s *store.Store, client chatter) *Pool {
@@ -43,6 +48,8 @@ func NewPool(size int, s *store.Store, client chatter) *Pool {
 		cancel: cancel,
 		llm:    client,
 	}
+	// 装配默认工具集（计算器、当前时间），让 worker 具备基础 agent 能力。
+	p.tools, p.handlers = defaultTools()
 	return &p
 }
 
@@ -94,7 +101,7 @@ func (p *Pool) process(id string) {
 	taskCtx, cancel := context.WithTimeout(p.ctx, 60*time.Second)
 	defer cancel()
 
-	res, err := p.llm.Chat(taskCtx, task.Prompt)
+	res, err := runAgent(taskCtx, p.llm, task.Prompt, p.tools, p.execTool)
 	if err != nil {
 		// 错误全文只进日志：它携带上游响应体，可能含配额、账单等内部信息。
 		// task.Error 会经 GET /tasks/{id} 原样返回给调用方，因此只存粗粒度分类。
@@ -109,6 +116,19 @@ func (p *Pool) process(id string) {
 	if err := p.tasks.Complete(id, res, nil); err != nil {
 		slog.Error("worker: task %s complete failed: %v", id, err)
 	}
+}
+
+// execTool 按工具名执行本地实现；错误也转成字符串返回，让模型有机会自我纠正。
+func (p *Pool) execTool(tc llm.ToolCall) string {
+	h, ok := p.handlers[tc.Function.Name]
+	if !ok {
+		return "error: unknown tool " + tc.Function.Name
+	}
+	out, err := h(json.RawMessage(tc.Function.Arguments))
+	if err != nil {
+		return "error: " + err.Error()
+	}
+	return out
 }
 
 func (p *Pool) Enqueue(id string) {
