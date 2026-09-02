@@ -35,12 +35,16 @@ type Store struct {
 //
 // 注意：整个结构体会被 api 层序列化后返回给调用方，
 // 因此不能往任何字段里放上游返回体、密钥等内部信息。
+//
+// json tag 必须显式声明：不加 tag 时 encoding/json 会直接用 Go 字段名
+// （ID/Status/...，首字母大写），前端按小写字段读就会拿到 undefined。
+// 序列化的字段名是对外契约，由 tag 固定，改字段名不会静默破坏调用方。
 type Task struct {
-	ID     string
-	Status string // pending | running | done | failed
-	Prompt string
-	Result string // 仅 done 时有值
-	Error  string // 仅 failed 时有值，且必须是脱敏后的粗粒度分类
+	ID     string `json:"id"`
+	Status string `json:"status"` // pending | running | done | failed
+	Prompt string `json:"prompt"`
+	Result string `json:"result"` // 仅 done 时有值
+	Error  string `json:"error"`  // 仅 failed 时有值，且必须是脱敏后的粗粒度分类
 }
 
 // NewStore 返回一个可用的空 Store。
