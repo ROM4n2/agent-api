@@ -21,6 +21,16 @@ const (
 // 调用方应当用 errors.Is 判断，而不是比较字符串。
 var ErrNotFound = errors.New("task not found")
 
+// TaskStore 是任务存储的抽象接口：内存 Store 与 SQLite SQLStore 都实现它。
+// 用接口而非具体类型，是为了让 main 按配置在两种后端间切换
+// （ADR-0010：SQLite 持久化可插拔，默认内存）。
+type TaskStore interface {
+	Create(prompt string) (id string)
+	Update(id, status string) error
+	Get(id string) (Task, error)
+	Complete(id, result string, err error) error
+}
+
 // Store 是任务的并发安全容器。
 //
 // map 本身不支持并发写（会直接 panic），且 Update/Complete 都是

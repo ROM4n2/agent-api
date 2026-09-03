@@ -8,13 +8,16 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
-// Config 是启动所需的外部配置。项目只有这两个值需要外部提供。
+// Config 是启动所需的外部配置。
 type Config struct {
-	DeepSeekAPIKey string
-	APIAuthKey     string
+	DeepSeekAPIKey     string
+	APIAuthKey         string
+	DbPath             string // 非空则启用 SQLite 持久化（重启不丢），空则用内存存储
+	TaskTimeoutSeconds int    // 单次任务 LLM 调用超时（秒），0 表示用默认 30s
 }
 
 // defaultPath 是约定俗成的配置文件位置，相对进程工作目录。
@@ -30,8 +33,10 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	return Config{
-		DeepSeekAPIKey: firstNonEmpty(os.Getenv("DEEPSEEK_API_KEY"), fileCfg.DeepSeekAPIKey),
-		APIAuthKey:     firstNonEmpty(os.Getenv("API_AUTH_KEY"), fileCfg.APIAuthKey),
+		DeepSeekAPIKey:     firstNonEmpty(os.Getenv("DEEPSEEK_API_KEY"), fileCfg.DeepSeekAPIKey),
+		APIAuthKey:         firstNonEmpty(os.Getenv("API_AUTH_KEY"), fileCfg.APIAuthKey),
+		DbPath:             firstNonEmpty(os.Getenv("DB_PATH"), fileCfg.DbPath),
+		TaskTimeoutSeconds: fileCfg.TaskTimeoutSeconds,
 	}, nil
 }
 
@@ -83,8 +88,16 @@ func loadFile(path string) (Config, error) {
 			cfg.DeepSeekAPIKey = value
 		case "api_auth_key":
 			cfg.APIAuthKey = value
+		case "db_path":
+			cfg.DbPath = value
+		case "task_timeout_seconds":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return cfg, fmt.Errorf("config: %s:%d task_timeout_seconds 必须是整数：%q", path, lineNo, value)
+			}
+			cfg.TaskTimeoutSeconds = n
 		default:
-			return cfg, fmt.Errorf("config: %s:%d 未知配置项 %q（只支持 deepseek_api_key、api_auth_key）", path, lineNo, key)
+			return cfg, fmt.Errorf("config: %s:%d 未知配置项 %q（只支持 deepseek_api_key、api_auth_key、db_path、task_timeout_seconds）", path, lineNo, key)
 		}
 	}
 	if err := sc.Err(); err != nil {

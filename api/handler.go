@@ -17,14 +17,14 @@ import (
 
 // Handler 持有处理请求所需的依赖，由 main 装配后注入。
 type Handler struct {
-	store *store.Store
+	store store.TaskStore
 	pool  *worker.Pool
 	// authKey 由 main 从 config 注入，不在 api 层读环境变量：
 	// 配置来源只有一个（main），测试才能直接注入不同密钥。
 	authKey string
 }
 
-func NewHandler(s *store.Store, p *worker.Pool, authKey string) *Handler {
+func NewHandler(s store.TaskStore, p *worker.Pool, authKey string) *Handler {
 	return &Handler{store: s, pool: p, authKey: authKey}
 }
 
@@ -93,8 +93,12 @@ func (h *Handler) HandleRun(w http.ResponseWriter, r *http.Request) {
 	// 先落库再入队：Enqueue 之后 worker 可能立刻开始处理，
 	// 此时该 ID 必须已经存在于 store 中。
 	id := h.store.Create(req.Prompt)
+	if err := h.pool.Enqueue(id); err != nil {
+		// 队列满：显式 503，把背压交给客户端/网关，而非让连接挂死。
+		http.Error(w, "service unavailable: task queue is full", http.StatusServiceUnavailable)
+		return
+	}
 	metrics.IncSubmitted() // 提交即计数，同时在飞数 +1
-	h.pool.Enqueue(id)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusAccepted)

@@ -127,7 +127,7 @@ type Message struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content"`
 	ToolCallID string     `json:"tool_call_id,omitempty"` // tool 角色回填时用
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`    // assistant 请求调用工具时
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // assistant 请求调用工具时
 }
 
 // Tool 是注册给模型的函数工具描述（OpenAI 兼容格式）。

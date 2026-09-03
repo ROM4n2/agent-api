@@ -44,8 +44,26 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	s := store.NewStore()
-	p := worker.NewPool(3, s, llm.NewClient(cfg))
+	var backend store.TaskStore
+	if conf.DbPath != "" {
+		sqlStore, err := store.NewSQLStore(conf.DbPath)
+		if err != nil {
+			slog.Error("open sqlite store", slog.Any("error", err))
+			return 1
+		}
+		defer sqlStore.Close()
+		backend = sqlStore
+	} else {
+		backend = store.NewStore()
+	}
+	s := backend
+
+	// 单次任务 LLM 调用上限：可配置，缺省 30s（远比原 60s 短，避免慢上游长期占住 worker）。
+	taskTimeout := time.Duration(conf.TaskTimeoutSeconds) * time.Second
+	if taskTimeout <= 0 {
+		taskTimeout = 30 * time.Second
+	}
+	p := worker.NewPool(3, taskTimeout, s, llm.NewClient(cfg))
 
 	p.Start()
 	defer p.Stop()

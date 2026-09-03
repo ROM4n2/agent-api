@@ -24,30 +24,32 @@ type chatter interface {
 type Pool struct {
 	// 缓冲区大小等于 worker 数：满了 Enqueue 会阻塞调用方（HTTP handler），
 	// 使异步退化为同步。生产上应改为 select+default 快速失败或换持久化队列。
-	queue chan string
-	tasks *store.Store
-	size  int
+	queue       chan string
+	tasks       store.TaskStore
+	size        int
+	taskTimeout time.Duration // 单次任务 LLM 调用上限，超时即失败
 	// ctx/cancel 是关闭信号的广播机制：Stop 一次 cancel，
 	// 所有 worker 与派生出去的请求 ctx 同时收到通知。
 	// 用 cancel 而非 close(queue)，避免向已关闭 channel 发送导致 panic。
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
 	llm      chatter
-	tools    []llm.Tool            // 注册给模型的工具描述
+	tools    []llm.Tool             // 注册给模型的工具描述
 	handlers map[string]toolHandler // 工具名 -> 本地执行器
 }
 
-func NewPool(size int, s *store.Store, client chatter) *Pool {
+func NewPool(size int, taskTimeout time.Duration, s store.TaskStore, client chatter) *Pool {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	p := Pool{
-		size:   size,
-		tasks:  s,
-		queue:  make(chan string, size),
-		ctx:    ctx,
-		cancel: cancel,
-		llm:    client,
+		size:        size,
+		taskTimeout: taskTimeout,
+		tasks:       s,
+		queue:       make(chan string, size),
+		ctx:         ctx,
+		cancel:      cancel,
+		llm:         client,
 	}
 	// 装配默认工具集（计算器、当前时间），让 worker 具备基础 agent 能力。
 	p.tools, p.handlers = defaultTools()
@@ -99,7 +101,7 @@ func (p *Pool) process(id string) {
 
 	// 从 p.ctx 派生（而非 Background）：既有单次期限，
 	// 又能在 Stop 时随父 ctx 一起取消在飞的请求，不必干等超时。
-	taskCtx, cancel := context.WithTimeout(p.ctx, 60*time.Second)
+	taskCtx, cancel := context.WithTimeout(p.ctx, p.taskTimeout)
 	defer cancel()
 
 	res, err := runAgent(taskCtx, p.llm, task.Prompt, p.tools, p.execTool)
@@ -134,6 +136,17 @@ func (p *Pool) execTool(tc llm.ToolCall) string {
 	return out
 }
 
-func (p *Pool) Enqueue(id string) {
-	p.queue <- id
+// ErrQueueFull 表示任务队列已满（所有 worker 忙且缓冲占满），Enqueue 因此快速失败。
+var ErrQueueFull = errors.New("task queue is full")
+
+// Enqueue 把任务 ID 送入队列。队列满（worker 全忙且缓冲已满）时立即返回
+// ErrQueueFull 而非阻塞 handler —— 让「异步」退化为「同步失败」而不是「同步等待」，
+// 调用方据此回 503，把背压显式交给客户端/网关，而非让 HTTP 连接挂死。
+func (p *Pool) Enqueue(id string) error {
+	select {
+	case p.queue <- id:
+		return nil
+	default:
+		return ErrQueueFull
+	}
 }

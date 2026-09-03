@@ -87,8 +87,8 @@ type rateLimiter struct {
 }
 
 type tokenBucket struct {
-	tokens    float64
-	last      time.Time
+	tokens float64
+	last   time.Time
 }
 
 // newRateLimiter 构造限流器：rate 为每秒放行请求数，burst 为瞬时突发上限。
