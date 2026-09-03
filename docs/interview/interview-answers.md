@@ -173,6 +173,6 @@ func (p *Pool) Enqueue(id string) error {
 |---|---|---|---|
 | 队列满阻塞 handler | 异步退化为同步 | `select` + `default` → 503 | ✅ 已修（`ErrQueueFull` + `TestEnqueue_Full`） |
 | store 为内存态 | 进程重启丢全部任务 | 持久化（SQLite / Redis） | ✅ SQLite 可插拔（`db_path`） |
-| 无 graceful shutdown | Ctrl+C 时在跑的任务直接丢 | `signal.NotifyContext` + `srv.Shutdown` | 待做 |
-| 单次 LLM 超时 60s 偏长 | 慢上游时 worker 占太久 | 调小至 8s + 客户端退避 | 待做 |
+| 无 graceful shutdown | 实为已实现（见下）| `signal.NotifyContext` + `srv.Shutdown` + `defer p.Stop()` 取消树；在飞任务标记 failed 而非静默丢弃 | ✅ 已实现 |
+| 单次 LLM 超时 60s 偏长 | 慢上游时 worker 占太久 | 可配置 `task_timeout_seconds`（默认 30s，事故期可降到 8s 止血）| ✅ 已实现 |
 | pool size 硬编码 | 无法按环境调整 | 提为配置项 / 环境变量 | 待做 |
