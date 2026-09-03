@@ -16,7 +16,7 @@ import (
 // 验证 handler + store + pool + 中间件在真实联动下工作（用 fakeLLM 替代真实 LLM）。
 func TestIntegrationRunToPoll(t *testing.T) {
 	s := store.NewStore()
-	p := worker.NewPool(3, s, fakeLLM{})
+	p := worker.NewPool(3, 30*time.Second, s, fakeLLM{})
 	p.Start()
 	defer p.Stop()
 

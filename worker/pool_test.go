@@ -24,7 +24,7 @@ func (f fakeChatter) ChatWithTools(ctx context.Context, msgs []llm.Message, tool
 
 func TestWorker_ProcessesTask(t *testing.T) {
 	s := store.NewStore()
-	p := NewPool(3, s, fakeChatter{100 * time.Millisecond, nil})
+	p := NewPool(3, 30*time.Second, s, fakeChatter{100 * time.Millisecond, nil})
 	p.Start()
 	defer p.Stop()
 
@@ -59,7 +59,7 @@ func TestWorker_ProcessesTask(t *testing.T) {
 
 func TestWorker_UpdateNotFound(t *testing.T) {
 	s := store.NewStore()
-	p := NewPool(1, s, fakeChatter{0, nil})
+	p := NewPool(1, 30*time.Second, s, fakeChatter{0, nil})
 	p.Start()
 	defer p.Stop()
 
@@ -75,7 +75,7 @@ func TestWorker_UpdateNotFound(t *testing.T) {
 
 func TestPool_LimitsConcurrency(t *testing.T) {
 	s := store.NewStore()
-	p := NewPool(3, s, fakeChatter{100 * time.Millisecond, nil}) // 3 个 worker
+	p := NewPool(3, 30*time.Second, s, fakeChatter{100 * time.Millisecond, nil}) // 3 个 worker
 	p.Start()
 	defer p.Stop()
 
@@ -146,7 +146,7 @@ func TestPool_LimitsConcurrency(t *testing.T) {
 func TestWorker_ChatFailure(t *testing.T) {
 	s := store.NewStore()
 	fake := fakeChatter{err: errors.New("boom")}
-	p := NewPool(1, s, fake)
+	p := NewPool(1, 30*time.Second, s, fake)
 	p.Start()
 	defer p.Stop()
 
@@ -170,5 +170,20 @@ func TestWorker_ChatFailure(t *testing.T) {
 	task, _ := s.Get(id)
 	if task.Error != "upstream error" {
 		t.Errorf("Error = %q, want %q", task.Error, "upstream error")
+	}
+}
+
+func TestEnqueue_Full(t *testing.T) {
+	s := store.NewStore()
+	p := NewPool(1, 30*time.Second, s, fakeChatter{0, nil})
+	p.Start()
+	defer p.Stop()
+
+	// 占住唯一的缓冲位（size=1），且不消费，使队列满
+	occupy := s.Create("occupy")
+	p.queue <- occupy
+
+	if err := p.Enqueue("extra"); !errors.Is(err, ErrQueueFull) {
+		t.Errorf("Enqueue on full queue = %v, want ErrQueueFull", err)
 	}
 }

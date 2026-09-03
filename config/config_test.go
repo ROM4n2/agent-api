@@ -78,3 +78,38 @@ func TestLoad_MalformedLineRejected(t *testing.T) {
 		t.Error("缺少冒号的行应报错")
 	}
 }
+
+func TestLoad_DbPathAndTimeoutParsed(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("DB_PATH", "")
+	p := writeCfg(t, "db_path: agent-api.db\ntask_timeout_seconds: 8\n")
+
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DbPath != "agent-api.db" {
+		t.Errorf("DbPath = %q, want agent-api.db", cfg.DbPath)
+	}
+	if cfg.TaskTimeoutSeconds != 8 {
+		t.Errorf("TaskTimeoutSeconds = %d, want 8", cfg.TaskTimeoutSeconds)
+	}
+
+	// DB_PATH 环境变量应覆盖文件中的值
+	t.Setenv("DB_PATH", "from-env.db")
+	cfg, err = Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DbPath != "from-env.db" {
+		t.Errorf("DbPath = %q, want from-env.db（环境变量优先）", cfg.DbPath)
+	}
+}
+
+func TestLoad_NonIntTimeoutRejected(t *testing.T) {
+	isolateEnv(t)
+	p := writeCfg(t, "task_timeout_seconds: notanint\n")
+	if _, err := Load(p); err == nil {
+		t.Error("非整数 task_timeout_seconds 应报错")
+	}
+}

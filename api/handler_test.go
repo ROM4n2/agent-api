@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeLLM struct{}
@@ -20,7 +21,7 @@ func (fakeLLM) ChatWithTools(ctx context.Context, msgs []llm.Message, tools []ll
 
 func newTestMux() (*http.ServeMux, *store.Store) {
 	s := store.NewStore()
-	p := worker.NewPool(3, s, fakeLLM{})
+	p := worker.NewPool(3, 30*time.Second, s, fakeLLM{})
 	h := NewHandler(s, p, "") // 空密钥 = 开发模式，放行
 	return h.Routes(), s
 }
@@ -149,7 +150,7 @@ func TestHandleGet_NotFound(t *testing.T) {
 // 配置链路（config → main → Handler）断了这里会红。
 func TestAuth_UsesInjectedKey(t *testing.T) {
 	s := store.NewStore()
-	p := worker.NewPool(1, s, fakeLLM{})
+	p := worker.NewPool(1, 30*time.Second, s, fakeLLM{})
 	h := NewHandler(s, p, "s3cret")
 	mux := h.Routes()
 

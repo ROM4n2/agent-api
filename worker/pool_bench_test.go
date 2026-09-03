@@ -5,13 +5,14 @@ import (
 	"agent-api/store"
 	"context"
 	"testing"
+	"time"
 )
 
 // BenchmarkPoolEnqueue 量化「提交 + 异步执行」的调度吞吐：
 // 用零延迟 fakeChatter，循环 Enqueue，3 个 worker 并发消费。
 func BenchmarkPoolEnqueue(b *testing.B) {
 	s := store.NewStore()
-	p := NewPool(3, s, fakeChatter{0, nil})
+	p := NewPool(3, 30*time.Second, s, fakeChatter{0, nil})
 	p.Start()
 	defer p.Stop()
 
