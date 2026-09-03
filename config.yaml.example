@@ -5,3 +5,7 @@
 
 deepseek_api_key: "sk-你的key"
 api_auth_key: "你的服务端密钥"
+
+# 可选：SQLite 持久化文件路径。留空则用内存存储（重启丢任务）。
+# 例如：db_path: "agent-api.db"
+db_path: ""

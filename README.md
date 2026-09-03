@@ -49,11 +49,12 @@ Copy-Item config.yaml.example config.yaml   # 然后填真实值
 go run .
 ```
 
-`config.yaml` 已被 `.gitignore` 忽略。只支持扁平的 `key: value`，解析到嵌套或未知 key 会直接启动失败，不静默忽略：
+`config.yaml` 已被 `.gitignore` 忽略。只支持扁平的 `key: value`，解析到嵌套或未知 key 会直接启动失败，不静默忽略。已支持的 key：`deepseek_api_key`、`api_auth_key`、`db_path`（可选，留空则用内存存储）：
 
 ```yaml
 deepseek_api_key: "sk-你的key"
 api_auth_key: "你的服务端密钥"
+db_path: ""   # 可选：填 SQLite 文件路径（如 agent-api.db）即启用持久化，留空用内存存储
 ```
 
 没有配置文件也没设环境变量时，服务会打印错误并以退出码 1 退出。
@@ -147,7 +148,7 @@ agent-api/
 │   ├── demo.go        # go:embed 单页 Demo
 │   └── demo.html
 ├── config/            # 配置加载：环境变量 > config.yaml（扁平解析，零依赖）
-├── store/             # 任务存储：内存 map + Mutex，状态机
+├── store/             # 任务存储：TaskStore 接口；内存 map + Mutex（默认）或 SQLite 持久化（配 db_path）
 ├── worker/            # Worker Pool + agent 工具调用循环
 ├── llm/               # LLM 客户端：封装 DeepSeek API 调用
 ├── metrics/           # 进程内计数 + Prometheus 文本格式（零依赖）
@@ -157,7 +158,7 @@ agent-api/
 
 ## Tech Stack
 
-Go 1.26 · slog · Docker · DeepSeek API · 仅标准库（`net/http` / `embed` / `httptest` / `sync/atomic`），零第三方依赖
+Go 1.26 · slog · Docker · DeepSeek API · 以标准库为主（`net/http` / `embed` / `httptest` / `sync/atomic`）；持久化可选引入 `modernc.org/sqlite`（纯 Go，无 CGO）作为唯一第三方运行时依赖，默认不启用。
 
 ## License
 

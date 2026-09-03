@@ -2,6 +2,11 @@
 *.exe
 /agent-api
 
+# SQLite persistent store (only created when db_path is configured)
+*.db
+*.db-wal
+*.db-shm
+
 # Test coverage
 *.out
 coverage.txt
